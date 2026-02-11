@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mogilev Express | Фитнес-доставка</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        /* Стили в духе Яндекс Go */
+        :root {
+            --primary: #fc0; /* Желтый */
+            --black: #21201f;
+            --gray: #f2f2f2;
+            --green: #00b341;
+        }
+        body { margin: 0; font-family: 'Helvetica Neue', Arial, sans-serif; background: var(--gray); -webkit-tap-highlight-color: transparent; }
+        
+        /* Заголовки */
+        .header { background: var(--primary); padding: 15px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.1); position: sticky; top: 0; z-index: 1000; }
+        .logo { font-weight: 900; font-size: 18px; letter-spacing: -0.5px; display: flex; align-items: center; gap: 8px; }
+        
+        /* Переключатель ролей (Клиент / Курьер) */
+        .role-switch { background: rgba(255,255,255,0.3); padding: 4px; border-radius: 8px; display: flex; font-size: 12px; font-weight: bold; }
+        .role-btn { padding: 6px 12px; border-radius: 6px; border: none; background: transparent; cursor: pointer; }
+        .role-btn.active { background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+
+        /* Карта */
+        #map { height: 50vh; width: 100%; z-index: 1; }
+
+        /* Панель управления */
+        .panel { background: #fff; border-radius: 20px 20px 0 0; margin-top: -20px; position: relative; z-index: 2; padding: 20px; min-height: 40vh; box-shadow: 0 -4px 10px rgba(0,0,0,0.05); }
+        
+        /* Элементы интерфейса */
+        .address-box { background: var(--gray); padding: 12px; border-radius: 12px; margin-bottom: 10px; display: flex; align-items: center; gap: 10px; font-size: 14px; }
+        .price-tag { font-size: 28px; font-weight: 900; margin: 15px 0; }
+        .btn-main { width: 100%; padding: 16px; background: var(--black); color: var(--primary); font-weight: bold; font-size: 16px; border: none; border-radius: 12px; cursor: pointer; transition: transform 0.1s; }
+        .btn-main:active { transform: scale(0.98); }
+        .btn-main:disabled { background: #ccc; color: #fff; }
+
+        /* Карточка заказа для курьера */
+        .order-card { border: 1px solid #eee; border-radius: 12px; padding: 15px; margin-bottom: 15px; background: white; }
+        .order-header { display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 8px; }
+        .fitness-badge { background: #e0f2fe; color: #0284c7; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; display: inline-flex; align-items: center; gap: 4px; }
+        
+        /* Фитнес виджет */
+        .fitness-stats { display: flex; gap: 10px; margin-bottom: 20px; }
+        .stat-box { flex: 1; background: var(--black); color: white; padding: 12px; border-radius: 12px; text-align: center; }
+        .stat-val { font-size: 20px; font-weight: 900; color: var(--primary); }
+        .stat-label { font-size: 10px; opacity: 0.7; text-transform: uppercase; }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="logo"><i class="fas fa-person-walking"></i> Mogilev Express</div>
+        <div class="role-switch">
+            <button class="role-btn active" onclick="switchRole('client')">Заказчик</button>
+            <button class="role-btn" onclick="switchRole('courier')">Курьер</button>
+        </div>
+    </div>
+
+    <div id="client-view">
+        <div id="map"></div>
+        <div class="panel">
+            <h3 style="margin-top:0">Новый заказ</h3>
+            <p style="font-size:12px; color:#888;">Нажми на карту: сначала ОТКУДА, потом КУДА.</p>
+            
+            <div class="address-box">
+                <i class="fas fa-circle" style="color:var(--black); font-size:10px;"></i>
+                <span id="addr-from">Выберите точку А на карте...</span>
+            </div>
+            <div class="address-box">
+                <i class="fas fa-square" style="color:var(--black); font-size:10px;"></i>
+                <span id="addr-to">Выберите точку Б на карте...</span>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                    <div style="font-size:12px; color:#888;">Стоимость</div>
+                    <div class="price-tag"><span id="price-display">0.00</span> BYN</div>
+                </div>
+                <div style="text-align:right;">
+                    <div style="font-size:12px; color:#888;">Расстояние</div>
+                    <div style="font-weight:bold;"><span id="dist-display">0</span> м</div>
+                </div>
+            </div>
+
+            <button id="btn-order" class="btn-main" onclick="createOrder()" disabled>
+                Заказать доставку
+            </button>
+        </div>
+    </div>
+
+    <div id="courier-view" class="hidden" style="padding: 20px; padding-bottom: 80px;">
+        <div class="fitness-stats">
+            <div class="stat-box">
+                <div class="stat-val" id="total-steps">0</div>
+                <div class="stat-label">Шагов сегодня</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-val" id="total-cal">0</div>
+                <div class="stat-label">Ккал сожжено</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-val" id="wallet">0.00</div>
+                <div class="stat-label">Баланс (BYN)</div>
+            </div>
+        </div>
+
+        <h3>Активные заказы в Могилеве</h3>
+        <div id="orders-list">
+            <div style="text-align:center; color:#999; margin-top:40px;">Нет активных заказов</div>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. ПЕРЕМЕННЫЕ И ДАННЫЕ ---
+        let map, markerA, markerB, line;
+        let coordsA = null;
+        let coordsB = null;
+        
+        // Фейковая База Данных (хранится в памяти)
+        let orders = []; 
+        let courierStats = { steps: 1240, calories: 85, balance: 5.00 }; // Старт с 5 рублями
+
+        // --- 2. ИНИЦИАЛИЗАЦИЯ КАРТЫ ---
+        function initMap() {
+            // Центр Могилева: площадь Ленина/Первомайская
+            map = L.map('map').setView([53.9006, 30.3313], 13);
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OSM'
+            }).addTo(map);
+
+            // Обработка кликов по карте
+            map.on('click', function(e) {
+                handleMapClick(e.latlng);
+            });
+        }
+
+        // --- 3. ЛОГИКА ЗАКАЗЧИКА ---
+        function handleMapClick(latlng) {
+            if (!coordsA) {
+                // Ставим точку А
+                coordsA = latlng;
+                markerA = L.marker(latlng).addTo(map).bindPopup("Откуда").openPopup();
+                document.getElementById('addr-from').innerText = "Точка А (координаты " + latlng.lat.toFixed(4) + ")";
+            } else if (!coordsB) {
+                // Ставим точку Б
+                coordsB = latlng;
+                markerB = L.marker(latlng).addTo(map).bindPopup("Куда").openPopup();
+                document.getElementById('addr-to').innerText = "Точка Б (координаты " + latlng.lat.toFixed(4) + ")";
+                
+                // Рисуем линию и считаем цену
+                drawRoute();
+            } else {
+                // Сброс, если кликнули третий раз
+                resetMap();
+                handleMapClick(latlng);
+            }
+        }
+
+        function drawRoute() {
+            // Рисуем линию
+            line = L.polyline([coordsA, coordsB], {color: 'black', weight: 4, dashArray: '10, 10'}).addTo(map);
+            map.fitBounds(line.getBounds(), {padding: [50, 50]});
+
+            // Считаем дистанцию (по прямой для простоты * 1.3 коэффициент кривизны улиц)
+            const distMeters = Math.round(map.distance(coordsA, coordsB) * 1.3);
+            
+            // Расчет цены (ТВОЯ ФОРМУЛА)
+            // 2.5 BYN (до 300м) + 0.2 BYN за каждые 100м
+            let price = 2.50;
+            if (distMeters > 300) {
+                const extraDist = distMeters - 300;
+                const steps = Math.ceil(extraDist / 100);
+                price += steps * 0.20;
+            }
+
+            // Обновляем интерфейс
+            document.getElementById('dist-display').innerText = distMeters;
+            document.getElementById('price-display').innerText = price.toFixed(2);
+            document.getElementById('btn-order').disabled = false;
+            document.getElementById('btn-order').dataset.price = price.toFixed(2);
+            document.getElementById('btn-order').dataset.dist = distMeters;
+        }
+
+        function resetMap() {
+            if (markerA) map.removeLayer(markerA);
+            if (markerB) map.removeLayer(markerB);
+            if (line) map.removeLayer(line);
+            coordsA = null;
+            coordsB = null;
+            document.getElementById('addr-from').innerText = "Выберите точку А...";
+            document.getElementById('addr-to').innerText = "Выберите точку Б...";
+            document.getElementById('price-display').innerText = "0.00";
+            document.getElementById('btn-order').disabled = true;
+        }
+
+        // --- 4. СОЗДАНИЕ ЗАКАЗА ---
+        function createOrder() {
+            const price = parseFloat(document.getElementById('btn-order').dataset.price);
+            const dist = parseInt(document.getElementById('btn-order').dataset.dist);
+            
+            const newOrder = {
+                id: Math.floor(Math.random() * 10000),
+                from: "Точка А",
+                to: "Точка Б",
+                price: price,
+                dist: dist,
+                commission: (price * 0.15).toFixed(2), // 15% комиссия
+                steps: Math.round(dist / 0.7), // Фитнес: шаги
+                calories: Math.round((dist / 0.7) * 0.04) // Фитнес: калории
+            };
+
+            orders.push(newOrder);
+            alert(`Заказ #${newOrder.id} создан! Переключись в режим Курьера, чтобы увидеть его.`);
+            resetMap();
+            renderOrders(); // Обновить список у курьеров
+        }
+
+        // --- 5. ЛОГИКА КУРЬЕРА ---
+        function renderOrders() {
+            const list = document.getElementById('orders-list');
+            if (orders.length === 0) {
+                list.innerHTML = '<div style="text-align:center; color:#999; margin-top:40px;">Нет активных заказов</div>';
+                return;
+            }
+
+            list.innerHTML = orders.map(order => `
+                <div class="order-card">
+                    <div class="order-header">
+                        <span>📦 Заказ #${order.id}</span>
+                        <span style="color:var(--green);">${order.price.toFixed(2)} BYN</span>
+                    </div>
+                    <div style="font-size:12px; color:#666; margin-bottom:10px;">
+                        <i class="fas fa-map-marker-alt"></i> ${order.dist} метров пешком
+                    </div>
+                    
+                    <div style="background:#f9f9f9; padding:8px; border-radius:8px; font-size:11px; margin-bottom:10px;">
+                        <div style="display:flex; justify-content:space-between;">
+                            <span>Комиссия сервиса (15%):</span>
+                            <b>${order.commission} BYN</b>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; margin-top:4px; color:#0284c7;">
+                            <span><i class="fas fa-shoe-prints"></i> Твоя выгода:</span>
+                            <b>+${order.steps} шагов</b>
+                        </div>
+                    </div>
+
+                    <button class="btn-main" style="padding:10px; font-size:14px;" onclick="takeOrder(${order.id})">
+                        Взять заказ
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function takeOrder(id) {
+            const orderIndex = orders.findIndex(o => o.id === id);
+            const order = orders[orderIndex];
+
+            // Проверка баланса
+            if (courierStats.balance < order.commission) {
+                alert(`Ошибка! На балансе недостаточно средств для комиссии (${order.commission} BYN). Пополни счет.`);
+                return;
+            }
+
+            // Имитация выполнения
+            if(confirm(`Списать комиссию ${order.commission} BYN и взять заказ?`)) {
+                // Списываем деньги
+                courierStats.balance -= parseFloat(order.commission);
+                
+                // Добавляем фитнес-статистику
+                courierStats.steps += order.steps;
+                courierStats.calories += order.calories;
+
+                // Удаляем заказ из списка (как будто выполнен)
+                orders.splice(orderIndex, 1);
+                
+                updateCourierStats();
+                renderOrders();
+                alert(`Заказ выполнен! Вы заработали ${order.price} BYN (наличными) и сожгли ${order.calories} ккал.`);
+            }
+        }
+
+        function updateCourierStats() {
+            document.getElementById('wallet').innerText = courierStats.balance.toFixed(2);
+            document.getElementById('total-steps').innerText = courierStats.steps;
+            document.getElementById('total-cal').innerText = courierStats.calories;
+        }
+
+        // --- 6. УПРАВЛЕНИЕ ИНТЕРФЕЙСОМ ---
+        function switchRole(role) {
+            document.querySelectorAll('.role-btn').forEach(b => b.classList.remove('active'));
+            event.target.classList.add('active');
+
+            if (role === 'client') {
+                document.getElementById('client-view').classList.remove('hidden');
+                document.getElementById('courier-view').classList.add('hidden');
+                setTimeout(() => map.invalidateSize(), 100); // Чиним карту при возврате
+            } else {
+                document.getElementById('client-view').classList.add('hidden');
+                document.getElementById('courier-view').classList.remove('hidden');
+                renderOrders();
+                updateCourierStats();
+            }
+        }
+
+        // Запуск
+        initMap();
+        updateCourierStats();
+
+    </script>
+</body>
+</html>
+ 
